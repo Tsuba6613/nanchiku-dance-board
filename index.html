@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>南筑ダンス部 欠席・遅刻・早退ボード</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic", sans-serif; background: #eef3f8; color: #17233b; }
+  main { max-width: 760px; margin: 0 auto; padding: 18px 14px 32px; }
+  .card { background: #16264d; color: #fff; border-radius: 22px; padding: 20px; box-shadow: 0 12px 32px rgba(22,38,77,.22); }
+  h1 { margin: 0 0 6px; font-size: 24px; line-height: 1.25; }
+  .date { color: #dbe7ff; font-weight: 700; margin-bottom: 16px; }
+  .counts { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 14px 0; }
+  .count { background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.18); border-radius: 16px; padding: 12px 8px; text-align: center; }
+  .count b { display: block; font-size: 30px; line-height: 1; color: #ffd84d; }
+  .count span { display: block; margin-top: 6px; font-weight: 800; }
+  .total { font-size: 18px; font-weight: 900; margin: 10px 0 4px; }
+  .meta { color: #dbe7ff; font-size: 13px; margin-top: 10px; }
+  .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
+  button, .back { appearance: none; border: 0; border-radius: 999px; padding: 11px 16px; font-weight: 900; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; justify-content: center; }
+  button { background: #ffd84d; color: #16264d; }
+  button.secondary { background: #fff; color: #16264d; }
+  .back { background: rgba(255,255,255,.14); color: #fff; border: 1px solid rgba(255,255,255,.25); }
+  .details { display: none; margin-top: 18px; background: #fff; color: #17233b; border-radius: 18px; padding: 16px; }
+  .details.open { display: block; }
+  .group { margin: 0 0 16px; }
+  .group:last-child { margin-bottom: 0; }
+  .group h2 { font-size: 17px; margin: 0 0 8px; display: flex; align-items: center; gap: 8px; }
+  .dot { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
+  .absent { background: #e53935; } .late { background: #f9a825; } .early { background: #1e88e5; }
+  ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+  li { background: #f4f7fb; border-radius: 12px; padding: 10px 12px; }
+  .name { font-weight: 900; }
+  .reason { color: #45536b; margin-top: 3px; white-space: pre-wrap; }
+  .empty, .error { background: rgba(255,255,255,.12); border-radius: 14px; padding: 12px; margin-top: 14px; }
+  .error { background: #fff3cd; color: #5f4b00; }
+  @media (max-width: 520px) { h1 { font-size: 21px; } .counts { gap: 8px; } .count b { font-size: 26px; } }
+</style>
+</head>
+<body>
+<main>
+  <section class="card" aria-live="polite">
+    <h1>今日の欠席・遅刻・早退ボード</h1>
+    <div class="date" id="todayLabel">読み込み中…</div>
+    <div class="total" id="totalLabel">連絡を確認しています</div>
+    <div class="counts">
+      <div class="count"><b id="countAbsent">-</b><span>欠席</span></div>
+      <div class="count"><b id="countLate">-</b><span>遅刻</span></div>
+      <div class="count"><b id="countEarly">-</b><span>早退</span></div>
+    </div>
+    <div id="statusBox" class="empty">ボードを読み込んでいます。</div>
+    <div class="actions">
+      <button type="button" id="toggleBtn" aria-expanded="false">＋ 名前と理由を見る</button>
+      <button type="button" id="reloadBtn" class="secondary">もう一度読み込む</button>
+      <a class="back" href="https://muse.ai/s/nan-zhu-gao-xiao-dansubu-gong-you-pezi-jxa6xhd4rxb61z/aRPhM-GqXs5dBWGKQQkm-kNJI2pHI9SM6IWiI3ME-04">みんなのページへ戻る</a>
+    </div>
+    <div class="meta" id="updatedLabel"></div>
+    <div class="details" id="details"></div>
+  </section>
+</main>
+<script>
+(function () {
+  var SHEET_ID = '1G8Ilv3xgviYQTzijVA3FcS7WhXfe8PbgHwdk6igkd4s';
+  var GID = '688626295';
+  var TYPES = ['欠席', '遅刻', '早退'];
+  var TYPE_CLASS = { '欠席': 'absent', '遅刻': 'late', '早退': 'early' };
+  var EXCLUDED_ROWS = [
+    { name: '南筑太郎', grade: '2年', date: '11-20', type: '遅刻' },
+    { name: '久保 結愛琉', grade: '1年', date: '12-25', type: '遅刻' }
+  ];
+  var detailsOpen = false;
+  var loadTimer = null;
+  var callbackName = '__nanchikuBoardResponse';
+
+  function $(id) { return document.getElementById(id); }
+  function pad(n) { return String(n).padStart(2, '0'); }
+  function escapeHtml(value) {
+    return String(value == null ? '' : value).replace(/[&<>"']/g, function (ch) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch];
+    });
+  }
+  function todayParts() {
+    var parts = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Tokyo', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
+    var map = {};
+    parts.forEach(function (p) { map[p.type] = p.value; });
+    return { year: map.year, month: map.month, day: map.day, key: map.month + '-' + map.day };
+  }
+  function cellValue(cell) {
+    if (!cell) return '';
+    if (cell.v !== undefined && cell.v !== null) return cell.v;
+    if (cell.f !== undefined && cell.f !== null) return cell.f;
+    return '';
+  }
+  function parseGvizDate(value, formatted) {
+    var raw = value;
+    if (typeof raw === 'string' && raw.indexOf('Date(') === 0) {
+      var nums = raw.match(/\d+/g) || [];
+      if (nums.length >= 3) {
+        return new Date(Number(nums[0]), Number(nums[1]), Number(nums[2]), Number(nums[3] || 0), Number(nums[4] || 0), Number(nums[5] || 0)).getTime();
+      }
+    }
+    var text = String(formatted || raw || '').trim();
+    var m = text.match(/(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
+    if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4] || 0), Number(m[5] || 0), Number(m[6] || 0)).getTime();
+    var parsed = Date.parse(text);
+    return isNaN(parsed) ? 0 : parsed;
+  }
+  function normalizeDateCell(cell) {
+    var value = cellValue(cell);
+    var formatted = cell && cell.f ? cell.f : '';
+    if (typeof value === 'string' && value.indexOf('Date(') === 0) {
+      var nums = value.match(/\d+/g) || [];
+      if (nums.length >= 3) return pad(Number(nums[1]) + 1) + '-' + pad(Number(nums[2]));
+    }
+    var text = String(value || formatted || '').trim();
+    var m = text.match(/(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})/);
+    if (m) return pad(Number(m[2])) + '-' + pad(Number(m[3]));
+    m = text.match(/^(\d{1,2})-(\d{1,2})$/);
+    if (m) return pad(Number(m[1])) + '-' + pad(Number(m[2]));
+    m = text.match(/(\d{1,2})月(\d{1,2})日/);
+    if (m) return pad(Number(m[1])) + '-' + pad(Number(m[2]));
+    return text;
+  }
+  function isExcluded(row) {
+    return EXCLUDED_ROWS.some(function (ex) {
+      return row.name === ex.name && row.grade === ex.grade && row.date === ex.date && row.type === ex.type;
+    });
+  }
+  function parseRows(resp) {
+    var rows = (resp && resp.table && resp.table.rows) || [];
+    var parsed = [];
+    rows.forEach(function (row, index) {
+      var c = (row && row.c) || [];
+      var item = {
+        timestamp: parseGvizDate(cellValue(c[0]), c[0] && c[0].f),
+        index: index,
+        name: String(cellValue(c[1]) || '').trim(),
+        grade: String(cellValue(c[2]) || '').trim(),
+        date: normalizeDateCell(c[3]),
+        type: String(cellValue(c[4]) || '').trim(),
+        reason: String(cellValue(c[5]) || '').trim()
+      };
+      if (item.name && TYPES.indexOf(item.type) !== -1) parsed.push(item);
+    });
+    return parsed;
+  }
+  function todaysRows(resp) {
+    var today = todayParts();
+    var byKey = {};
+    parseRows(resp).forEach(function (row) {
+      if (row.date !== today.key || isExcluded(row)) return;
+      var key = [row.name, row.grade, row.date, row.type].join('|');
+      var prev = byKey[key];
+      if (!prev || row.timestamp > prev.timestamp || (row.timestamp === prev.timestamp && row.index > prev.index)) byKey[key] = row;
+    });
+    return Object.keys(byKey).map(function (key) { return byKey[key]; }).sort(function (a, b) {
+      var typeDiff = TYPES.indexOf(a.type) - TYPES.indexOf(b.type);
+      if (typeDiff) return typeDiff;
+      return a.timestamp - b.timestamp || a.index - b.index;
+    });
+  }
+  function render(resp) {
+    var today = todayParts();
+    var rows = todaysRows(resp);
+    var counts = { '欠席': 0, '遅刻': 0, '早退': 0 };
+    rows.forEach(function (row) { counts[row.type] += 1; });
+    $('todayLabel').textContent = today.year + '年' + Number(today.month) + '月' + Number(today.day) + '日';
+    $('countAbsent').textContent = counts['欠席'];
+    $('countLate').textContent = counts['遅刻'];
+    $('countEarly').textContent = counts['早退'];
+    $('totalLabel').textContent = rows.length ? '本日の連絡は ' + rows.length + ' 件です' : '本日は欠席・遅刻・早退の連絡はありません';
+    $('statusBox').style.display = rows.length ? 'none' : 'block';
+    $('statusBox').className = 'empty';
+    $('statusBox').textContent = '本日は欠席・遅刻・早退の連絡はありません。';
+    var now = new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit' }).format(new Date());
+    $('updatedLabel').textContent = '最終更新 ' + now + '（60秒ごとに自動更新）';
+    var html = '';
+    TYPES.forEach(function (type) {
+      var group = rows.filter(function (row) { return row.type === type; });
+      if (!group.length) return;
+      html += '<div class="group"><h2><span class="dot ' + TYPE_CLASS[type] + '"></span>' + escapeHtml(type) + '（' + group.length + '）</h2><ul>';
+      group.forEach(function (row) {
+        html += '<li><div class="name">' + escapeHtml(row.name) + '（' + escapeHtml(row.grade) + '）</div><div class="reason">' + escapeHtml(row.reason || '理由なし') + '</div></li>';
+      });
+      html += '</ul></div>';
+    });
+    $('details').innerHTML = html || '<div class="empty">表示する連絡はありません。</div>';
+    setDetails(detailsOpen);
+  }
+  function renderError() {
+    $('statusBox').style.display = 'block';
+    $('statusBox').className = 'error';
+    $('statusBox').textContent = 'ボードを読み込めませんでした。通信を確認して、もう一度読み込んでください。';
+    $('updatedLabel').textContent = '';
+    setDetails(true);
+  }
+  function setDetails(open) {
+    detailsOpen = open;
+    $('details').className = 'details' + (open ? ' open' : '');
+    $('toggleBtn').textContent = open ? '− 名前と理由を閉じる' : '＋ 名前と理由を見る';
+    $('toggleBtn').setAttribute('aria-expanded', open ? 'true' : 'false');
+  }
+  function loadBoard() {
+    var today = todayParts();
+    $('todayLabel').textContent = today.year + '年' + Number(today.month) + '月' + Number(today.day) + '日';
+    var script = document.createElement('script');
+    var done = false;
+    window[callbackName] = function (resp) {
+      done = true;
+      cleanup();
+      render(resp);
+    };
+    function cleanup() {
+      if (script.parentNode) script.parentNode.removeChild(script);
+      try { delete window[callbackName]; } catch (e) { window[callbackName] = undefined; }
+    }
+    script.onerror = function () { if (!done) { cleanup(); renderError(); } };
+    script.src = 'https://docs.google.com/spreadsheets/d/' + SHEET_ID + '/gviz/tq?tqx=' + encodeURIComponent('out:json;responseHandler:' + callbackName) + '&gid=' + GID + '&_=' + Date.now();
+    document.head.appendChild(script);
+    setTimeout(function () { if (!done) { cleanup(); renderError(); } }, 15000);
+  }
+  $('toggleBtn').addEventListener('click', function () { setDetails(!detailsOpen); });
+  $('reloadBtn').addEventListener('click', loadBoard);
+  loadBoard();
+  loadTimer = setInterval(loadBoard, 60000);
+})();
+</script>
+</body>
+</html>
