@@ -112,6 +112,7 @@ async function main() {
     updatedAt: new Date().toISOString(),
   };
   await writeFile(new URL('../counts.json', import.meta.url), `${JSON.stringify(out, null, 2)}\n`);
+  await writeFile(new URL('../counts.js', import.meta.url), `window.__nanchikuCounts = ${JSON.stringify(out)};\n`);
   console.log(JSON.stringify(out));
 }
 
