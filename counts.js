@@ -1,1 +1,1 @@
-window.__nanchikuCounts = {"date":"2026-11-28","absent":8,"late":3,"early":1,"total":12,"updatedAt":"2026-11-28T11:32:33.031Z"};
+window.__nanchikuCounts = {"date":"2026-11-28","absent":8,"late":3,"early":1,"total":12,"updatedAt":"2026-11-28T12:27:48.875Z"};
